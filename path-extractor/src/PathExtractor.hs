@@ -55,7 +55,7 @@ data Options =
   --width length includeSemiPath
 
 defaultOptions :: Options
-defaultOptions = (Options 3 8 False)
+defaultOptions = (Options 6 18 False)
 
 
 extractPaths :: FunctionNodes -> FunctionPath

@@ -7,19 +7,28 @@ type NodeBuilder a = [Int] -> [Identifier] -> Int -> a SrcSpanInfo -> [Node]
 type Value = String
 
 class Builder a where
-  build :: [Int] -> [Identifier] -> Int -> a SrcSpanInfo -> [Node]
+  build :: a SrcSpanInfo -> Int -> [Node]
 
 data Node =
     Leaf [Identifier] [Int] Int Value
+
+instance Show Node where
+  show (Leaf idents is len v) = "Identifications:" ++ show idents ++ "; Siblindindicies:" ++ show is ++ "; Length:" ++ show len ++ "; Value:" ++ v
+
+setLeafHead :: Identifier -> Node -> Int -> Node
+setLeafHead ind (Leaf idents is len v) i = Leaf (ind : idents) (i : is) (len + 1) v
+
+setLeafHeads :: Identifier -> [Node] -> Int -> [Node]
+setLeafHeads ident ns index = map (\n -> setLeafHead ident n index) ns
+
+setIndentHead :: Node -> Identifier -> Node
+setIndentHead (Leaf idents is len v) ind = Leaf (ind : idents) is (len + 1) v
 
 data FunctionNodes =
   FunctionNodes String [[Node]]
 
 instance Show FunctionNodes where
   show (FunctionNodes s nss) = s ++ concatMap show nss
-
-instance Show Node where
-  show (Leaf idents is len v) = "Identifications:" ++ show idents ++ "; Siblindindicies:" ++ show is ++ "; Length:" ++ show len ++ "; Value:" ++ v
 
 valueOf :: Node -> Value
 valueOf (Leaf _ _ _ v) = v
@@ -36,148 +45,171 @@ nameOf (Ident _ name)  = name
 nameOf (Symbol _ name) = name
 
 buildMethod :: Match SrcSpanInfo -> [Node]
-buildMethod (Match _ name ps rhs _) = patterns ++ rhs'
-    where (patterns, index) = foldBuilder 0 [] [MethodDecl'] 0 ps
-          rhs' = build [index] [MethodDecl'] 1 rhs
+buildMethod (Match _ name ps rhs _) = patterns ++ map (\n -> setIndentHead n MethodDecl') rhs'
+    where (patterns, index) = foldBuilder' 0 MethodDecl' ps
+          rhs' = build rhs index
 
 instance Builder Decl where
-  build is idents len (PatBind _ pat rhs (Just bind)) = r1 ++ r2 ++ r3
-    where r1 = build (is ++ [0]) idents' (len + 1) pat
-          r2 = build (is ++ [1]) idents' (len + 1) rhs
-          r3 = build (is ++ [2]) idents' (len + 1) bind
-          idents' = idents ++ [PatBind']
-  build is idents len (PatBind _ pat rhs Nothing) = r1 ++ r2
-    where r1 = build (is ++ [0]) idents' (len + 1) pat
-          r2 = build (is ++ [1]) idents' (len + 1) rhs
-          idents' = idents ++ [PatBind']
-  build is idents len a = [Leaf idents is len (show a)]
+  build (PatBind _ pat rhs (Just bind)) index = setLeafHeads PatBind' (r1 ++ r2 ++ r3) index
+    where r1 = build pat 0
+          r2 = build rhs 1
+          r3 = build bind 2
+  build (PatBind _ pat rhs Nothing) index = setLeafHeads PatBind' (r1 ++ r2) index
+    where r1 = build pat 0
+          r2 = build rhs 1
+  build a index = [Leaf [PatBind'] [index] 0 (show a)]
 
 
 instance Builder Pat where
-  build is idents len (PVar _ name) = build (is ++ [0]) (idents ++ [PVar']) (len + 1) name
-  build is idents len (PLit _ sign lit) = r1 ++ r2
-    where r1 = build (is ++ [0]) idents' (len + 1) sign
-          r2 = build (is ++ [1]) idents' (len + 1) lit
-          idents' = idents ++ [PLit']
-  build is idents len (PList _ pats) = fst (foldBuilder 0 is idents len pats)
-  build is idents len a = [Leaf idents is len (show a)]
+  build (PVar _ name) index = setLeafHeads PVar' (build name 0) index
+  build (PLit _ sign lit) index = setLeafHeads PLit' (r1 ++ r2) index
+    where r1 = build sign 0
+          r2 = build lit 1
+  build (PList _ pats) index = fst (foldBuilder 0 index PList' pats)
+  build (PParen _ pat) index = setLeafHeads PParen' (build pat 0) index
+  build (PTuple _ _ pats) index = fst (foldBuilder 0 index PTuple' pats)
+  build (PWildCard _) index = [Leaf [PWildCard'] [index] 0 "_"]
+  build (PInfixApp _ pat1 qName pat2) index =
+    setLeafHeads PInfixApp' (r1 ++ r2 ++ r3) index
+    where
+      r1 = build pat1 0
+      r2 = build qName 1
+      r3 = build pat2 2
+  build (PApp _ qName pats) index = r1 ++ r2
+    where
+      r1 = setLeafHeads PApp' (build qName 0) index
+      r2 = fst (foldBuilder 1 index PApp' pats)
+  build a index = [Leaf [] [index] 0 ("Error in Pat:" ++ show a)]
 
 --buildNode parent i id p = (Leaf (show p) parent id, id+1)
 --
 
 instance Builder Sign where
-  build is idents len (Signless _) = [Leaf (idents ++ [Signless']) is len ""]
+  build (Signless _) index = [Leaf [Signless'] [index] 0 "+"]
+  build (Negative _) index = [Leaf [Negative'] [index] 0 "-"]
 
 --buildPVar :: NodeBuilder PVar
 --buildPVar
 
 instance Builder Rhs where
-  build is idents len (UnGuardedRhs _ exp) =
-    build (is ++ [0]) (idents ++ [UnGuardedRhs']) (len + 1) exp
-  build is idents len (GuardedRhss _ rhss) =
-    fst (foldBuilder 0 is (idents ++ [GuardedRhss']) len rhss)
+  build (UnGuardedRhs _ exp) index = setLeafHeads UnGuardedRhs' (build exp 0) index
+  build (GuardedRhss _ rhss) index =
+    fst (foldBuilder 0 index GuardedRhss' rhss)
 
 instance Builder GuardedRhs where
-  build is idents len (GuardedRhs _ stmts exp) =
-    nodes ++ build (is ++ [width]) idents' (len + 1) exp
+  build (GuardedRhs _ stmts exp) index =
+    r1 ++ setLeafHeads GuardedRhs' r2 index
       where
-        (nodes, width) = foldBuilder 0 is (idents ++ [GuardedRhs']) len stmts
-        idents' = idents ++ [GuardedRhs']
+        (r1, width) = foldBuilder 0 index GuardedRhs' stmts
+        r2 = build exp width
 
 instance Builder Stmt where
-  build is idents len (Generator _ pat exp) = child1 ++ child2
-      where child1 = build (is ++ [0]) idents' (len + 1) pat
-            child2 = build (is ++ [1]) idents' (len + 1) exp
-            idents' = idents ++ [Generator']
-  build is idents len (Qualifier _  exp) =
-    build (is ++ [0]) (idents ++ [Qualifier']) (len + 1) exp
-  build is idents len (RecStmt _ stmts) = fst (foldBuilder 0 is (idents ++ [RecStmt']) len stmts)
+  build (Generator _ pat exp) index = setLeafHeads Generator' (r1 ++ r2) index
+      where r1 = build pat 0
+            r2 = build exp 1
+  build (Qualifier _  exp) index = setLeafHeads Qualifier' (build exp 0) index
+  build (RecStmt _ stmts) index = fst (foldBuilder 0 index RecStmt' stmts)
 
 instance Builder Exp where
-  build is idents len (If _ exp1 exp2 exp3) = node1 ++ node2 ++ node3
-    where node1 = build (is ++ [0]) idents' (len + 1) exp1
-          node2 = build (is ++ [1]) idents' (len + 1) exp2
-          node3 = build (is ++ [2]) idents' (len + 1) exp3
-          idents' = idents ++ [If']
-  build is idents len (InfixApp _ exp1 qop exp2) = node1 ++ node2 ++ node3
-    where node1 = build (is ++ [0]) idents' (len + 1) exp1
-          node2 = build (is ++ [1]) idents' (len + 1) qop
-          node3 = build (is ++ [2]) idents' (len + 1) exp2
-          idents' = idents ++ [InfixApp']
-  build is idents len (Var _ qname) = build (is ++ [0]) (idents ++ [Var']) (len + 1) qname
-  build is idents len (Lit _ lit) = build (is ++ [0]) (idents ++ [Lit']) (len + 1) lit
-  build is idents len (Paren _ p) = build (is ++ [0]) (idents ++ [Paren']) (len + 1) p
-  build is idents len (Con _ qName) = build (is ++ [0]) (idents ++ [Con']) (len + 1) qName
-  build is idents len (List _ exps) = fst (foldBuilder 0 is (idents ++ [List']) len exps)
-  build is idents len (Let _ binds exp) = r1 ++ r2
+  build (If _ exp1 exp2 exp3) index = setLeafHeads If' (r1 ++ r2 ++ r3) index
+    where r1 = build exp1 0
+          r2 = build exp2 1
+          r3 = build exp3 2
+  build (InfixApp _ exp1 qop exp2) index = setLeafHeads InfixApp' (r1 ++ r2 ++ r3) index
+    where r1 = build exp1 0
+          r2 = build qop 1
+          r3 = build exp2 2
+  build (Var _ qname) index = setLeafHeads Var' (build qname 0) index
+  build (Lit _ lit) index = setLeafHeads Lit' (build lit 0) index
+  build (Paren _ p) index = setLeafHeads Paren' (build p 0) index
+  build (Con _ qName) index = setLeafHeads Con' (build qName 0) index
+  build (List _ exps) index = fst (foldBuilder 0 index List' exps)
+  build (Let _ binds exp) index = setLeafHeads Let' (r1 ++ r2) index
     where
-      r1 = build (is ++ [0]) idents' (len + 1) binds
-      r2 = build (is ++ [1]) idents' (len + 1) exp
-      idents' = idents ++ [Let']
-  build is idents len (Lambda _ pats exp) = patterns ++ exp'
-    where (patterns, index) = foldBuilder 0 is idents' len pats
-          exp' = build (is ++ [index]) idents' (len + 1) exp
-          idents' = idents ++ [Lambda']
-  build is idents len (Case _ exp alts) = exp' ++ alt'
+      r1 = build binds 0
+      r2 = build exp 1
+  build (Lambda _ pats exp) index = patterns ++ setLeafHeads Lambda' exp' index
+    where (patterns, index') = foldBuilder 0 index Lambda' pats
+          exp' = build exp index'
+  build (Case _ exp alts) index = setLeafHeads Case' exp' index ++ alt'
     where
-      exp' = build (is ++ [0]) idents' (len + 1) exp
-      alt' = fst (foldBuilder 1 is idents' len alts)
-      idents' = idents ++ [Case']
-  build is idents len (App _ exp1 exp2) = r1 ++ r2
+      exp' = build exp 0
+      alt' = fst (foldBuilder 1 index Case' alts)
+  build (App _ exp1 exp2) index = setLeafHeads App' (r1 ++ r2) index
     where
-      r1 = build (is ++ [0]) idents' (len + 1) exp1
-      r2 = build (is ++ [1]) idents' (len + 1) exp2
-      idents' = idents ++ [App']
-  build is idents len a = [Leaf idents is len ("Exp Error:" ++ show a)]
+      r1 = build exp1 0
+      r2 = build exp2 1
+  build a index = [Leaf [] [index] 0 ("Expression Error:" ++ show a)]
 
-foldBuilder :: (Builder a) => Int -> [Int] -> [Identifier] -> Int -> [a SrcSpanInfo] -> ([Node], Int)
-foldBuilder width is idents len =
-  foldl (\(r, width') x -> (r ++ (build (is ++ [width']) idents (len + 1) x), width' + 1)) ([], width)
+foldBuilder :: (Builder a) => Int -> Int -> Identifier -> [a SrcSpanInfo] -> ([Node], Int)
+foldBuilder width index ident xs =
+  let
+  (nodes, indexCount) =
+    foldl (\(r, width') x -> (r ++ (build x width'), width' + 1)) ([], width) xs
+  in
+  (setLeafHeads ident nodes index, indexCount)
+
+foldBuilder' :: (Builder a) => Int -> Identifier -> [a SrcSpanInfo] -> ([Node], Int)
+foldBuilder' width ident xs =
+  let
+  (nodes, indexCount) =
+    foldl (\(r, width') x -> (r ++ (build x width'), width' + 1)) ([], width) xs
+  in
+  (map (\n -> setIndentHead n ident) nodes, indexCount)
 
 instance Builder Binds where
-  build is idents len (BDecls _ ipBinds) = fst (foldBuilder 0 is (idents ++ [IPBinds']) len ipBinds)
-  build is idents len (IPBinds _ decls) = fst (foldBuilder 0 is (idents ++ [IPBinds']) len decls)
+  build (BDecls _ ipBinds) index = fst (foldBuilder 0 index IPBinds' ipBinds)
+  build (IPBinds _ decls) index  = fst (foldBuilder 0 index IPBinds' decls)
 
 instance Builder IPName where
-  build is idents len (IPDup _ s) = [Leaf (idents ++ [IPDup']) is len s]
-  build is idents len (IPLin _ s) = [Leaf (idents ++ [IPLin']) is len s]
+  build (IPDup _ s) index = [Leaf [IPDup'] [index] 0 s]
+  build (IPLin _ s) index = [Leaf [IPLin'] [index] 0 s]
 
 instance Builder IPBind where
-  build is idents len (IPBind _ ipName exp) = r1 ++ r2
+  build (IPBind _ ipName exp) = setLeafHeads IPBind' (r1 ++ r2)
     where
-      r1 = build (is ++ [0]) idents' (len + 1) ipName
-      r2 = build (is ++ [1]) idents' (len + 1) exp
-      idents' = idents ++ [IPBind']
+      r1 = build ipName 0
+      r2 = build exp 1
 
 instance Builder Alt where
-  build is idents len (Alt _ pat rhs Nothing) = pat' ++ rhs'
+  build (Alt _ pat rhs Nothing) = setLeafHeads Alt' (r1' ++ r2')
     where
-      pat' = build (is ++ [0]) idents' (len + 1) pat
-      rhs' = build (is ++ [1]) idents' (len + 1) rhs
-      idents' = idents ++ [Alt']
+      r1' = build pat 0
+      r2' = build rhs 1
 
 instance Builder Literal where
-  build is idents len (Int _ i' s)    = [Leaf (idents ++ [Int']) is len s]
-  build is idents len (String _ s s') = [Leaf (idents ++ [String']) is len s]
-  build is idents len (Char _ c s)    = [Leaf (idents ++ [Char']) is len s]
-  build is idents len (Frac _ f s)    = [Leaf (idents ++ [Frac']) is len s]
+  build (Int _ i' s) index    = [Leaf [Int'] [index] 0 s]
+  build (String _ s s') index = [Leaf [String'] [index] 0 s]
+  build (Char _ c s) index    = [Leaf [Char'] [index] 0 s]
+  build (Frac _ f s) index    = [Leaf [Frac'] [index] 0 s]
 
 instance Builder QOp where
-  build is idents len (QVarOp _ qname) = build (is ++ [0]) (idents ++ [QVarOp']) (len + 1) qname
-  build is idents len (QConOp _ qname) = build (is ++ [0]) (idents ++ [QConOp']) (len + 1) qname
+  build (QVarOp _ qname) = setLeafHeads QVarOp' (build qname 0)
+  build (QConOp _ qname) = setLeafHeads QConOp' (build qname 0)
 
 instance Builder QName where
-  build is idents len (UnQual _ name) = build (is ++ [0]) (idents ++ [UnQual']) (len + 1) name
+  build (UnQual _ name) = setLeafHeads UnQual' (build name 0)
+  build (Special _ con) = setLeafHeads Special' (build con 0)
+
+instance Builder SpecialCon where
+  build (ListCon _) index     = [Leaf [ListCon'] [index] 0 "[]"]
+  build (Cons _) index     = [Leaf [Cons'] [index] 0 ":"]
+  build (UnitCon _) index     = [Leaf [UnitCon'] [index] 0 "()"]
+  build (FunCon _) index     = [Leaf [FunCon'] [index] 0 "->"]
+  build (ExprHole _) index     = [Leaf [ExprHole'] [index] 0 "_"]
+  build a index     = [Leaf [ListCon'] [index] 0 ("UnkownError in special con: " ++ show a)]
 
 instance Builder Name where
-  build is idents len (Ident _ name)   = [Leaf (idents ++ [Ident']) is len name]
-  build is idents len (Symbol  _ name) = [Leaf (idents ++ [Symbol']) is len name]
+  build (Ident _ name) index   = [Leaf [Ident'] [index] 0 name]
+  build (Symbol  _ name) index = [Leaf [Symbol'] [index] 0 name]
 
 instance Show Identifier where
   show MethodDecl'   = "MethodDecl"
   show PVar'         = "PVar"
   show PLit'         = "PLit"
+  show PList'        = "PList"
   show Signless'     = "Signless"
+  show Negative'     = "Negative"
   show UnGuardedRhs' = "UnGuardedRhs"
   show GuardedRhss'  = "GuardedRhss"
   show GuardedRhs'   = "GuardedRhs"
@@ -212,12 +244,25 @@ instance Show Identifier where
   show IPBinds'      = "IPBinds"
   show Let'          = "Let"
   show PatBind'      = "PatBind"
+  show PParen'       = "PParen"
+  show PApp'         = "PApp"
+  show PInfixApp'    = "PInfixApp"
+  show ListCon'      = "ListCon"
+  show ExprHole'     = "ExprHole"
+  show Special'      = "Special"
+  show Cons'         = "Cons"
+  show UnitCon'      = "UnitCon"
+  show FunCon'       = "FunCon"
+  show PTuple'       = "PTuple"
+  show PWildCard'    = "PWildCard"
 
 data Identifier =
   MethodDecl'
   | PVar'
   | PLit'
+  | PList'
   | Signless'
+  | Negative'
   | UnGuardedRhs'
   | GuardedRhss'
   | GuardedRhs'
@@ -252,3 +297,14 @@ data Identifier =
   | IPBinds'
   | Let'
   | PatBind'
+  | PParen'
+  | PApp'
+  | PInfixApp'
+  | ListCon'
+  | Special'
+  | ExprHole'
+  | Cons'
+  | UnitCon'
+  | FunCon'
+  | PTuple'
+  | PWildCard'
