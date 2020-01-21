@@ -2,7 +2,6 @@ module PathExtractor where
 import           AST_Builder
 import           Data.Char
 import           Data.Maybe  (catMaybes)
-import           ListHelper
 
 {-
 data PathPartConnector =
@@ -14,10 +13,10 @@ instance Show PathPartConnector where
 -}
 
 upArrow :: String
-upArrow = " U "-- ↑
+upArrow = "|"--" U "-- ↑
 
 downArrow :: String
-downArrow = " D "-- ↓
+downArrow = "|"--" D "-- ↓
 
 data Path =
   Path [Identifier] Identifier [Identifier] Int Int
@@ -26,7 +25,7 @@ data FunctionPath =
   FunctionPath String [PathContext]
 
 instance Show FunctionPath where
-  show (FunctionPath s ps) = splitCamel s ++ unwords (map show ps)
+  show (FunctionPath s ps) = splitCamel s ++ " " ++ unwords (map show ps)
 
 tokenSeperationChar :: Char
 tokenSeperationChar = '|'
@@ -40,14 +39,14 @@ splitCamel (c : cs)
 instance Show Path where
   show (Path lefts root rights len width) = --show lefts ++ show root ++ show rights
     foldl (\r n -> r ++ show n ++ upArrow ) "" lefts ++ show root ++
-    foldl (\r n -> r ++ downArrow ++ show n ) "" rights ++ ";Lenght: " ++ show len ++ ";Width: " ++ show width
+    foldl (\r n -> r ++ downArrow ++ show n ) "" rights-- ++ ";Lenght: " ++ show len ++ ";Width: " ++ show width
 
 data PathContext =
   PathContext Value Path Value
 
 instance Show PathContext where
   show (PathContext v1 p v2) =
-    "{" ++ show v1 ++ ",(" ++ show p ++ ")," ++ show v2 ++ "}"
+    v1 ++ "," ++ show p ++ "," ++ v2
 
 
 data Options =
@@ -55,7 +54,7 @@ data Options =
   --width length includeSemiPath
 
 defaultOptions :: Options
-defaultOptions = (Options 6 18 False)
+defaultOptions = (Options 4 8 False)
 
 
 extractPaths :: FunctionNodes -> FunctionPath
@@ -65,11 +64,7 @@ extractPathWithOptions :: Options -> FunctionNodes -> FunctionPath
 extractPathWithOptions options (FunctionNodes name nss) = FunctionPath name (concatMap (rep options) nss)
 
 rep :: Options -> [Node] -> [PathContext]
-rep options ns =
-  let
-    connections = buildTuples ns
-  in
-  (catMaybes . map (\(n1, n2) -> buildPath options n1 n2)) connections
+rep options = catMaybes . map (uncurry (buildPath options)) . buildTuples
 
 buildTuples :: [a] -> [(a,a)]
 buildTuples []       = []

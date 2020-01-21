@@ -8,27 +8,22 @@ module Demo where
 --buildPath [] rs = Path [] (head rs) (tail rs)
 --buildPath ls rs = Path (tail ls) (head ls) (tail rs)
 
---const' :: a -> (b -> (a))
---const' a b = a
+(|<>|) :: Int -> Int -> Bool
+i |<>| i2 = i == i2
 
---letter val =
---  let val' = val * val
---  in val' - val
 
---(|<>|) :: Int -> Int -> Bool
---i |<>| i2 = i == i2
-
---guards a
---    | a == 0 = 5
---    | otherwise = 6
+guards a
+  | a == 0 = 5
+  | otherwise = 6
 
 --mathStuff :: Int -> Int
 --mathStuff val = if val > 0 then 1 else 0
+
 bigMethod val x y
   | y > 0 = case val of
-  (Just (x:xs)) -> x * foldr (+) 0 xs
-  Nothing -> case x of
-    (_,b,v) -> y + y * b - val + head x
+    (Just (x:xs)) -> x * foldr (+) 0 xs
+    Nothing -> case x of
+      (_,b,v) -> y + y * b - val + head x
   | head (reverse val) < 1 =
     let b = y * y
     in b + z + z
