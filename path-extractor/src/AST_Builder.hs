@@ -196,6 +196,10 @@ instance Builder Exp where
     do
       r1 <- build qname 0
       return (setLeafHeads Var' r1 index)
+  build (Do _ stmts) index =
+    do
+      (r1,_) <- foldBuilder 0 index Do' stmts
+      return r1
   build (Lit _ lit) index =
     do
       r1 <- build lit 0
@@ -316,6 +320,7 @@ instance Builder QName where
     do
         r1 <- build con 0
         return (setLeafHeads Special' r1 index)
+  build a index               = Left ("UnkownError in QName: " ++ show a)
 
 instance Builder SpecialCon where
   build (ListCon _) index  = return [Leaf [ListCon'] [index] 0 "[]"]
@@ -384,6 +389,7 @@ instance Show Identifier where
   show PTuple'       = "PTuple"
   show PWildCard'    = "PWildCard"
   show LetStmt'      = "LetStmt"
+  show Do'           = "LetStmt"
 
 data Identifier =
   Match'
@@ -440,3 +446,4 @@ data Identifier =
   | PWildCard'
   | BDecls'
   | LetStmt'
+  | Do'

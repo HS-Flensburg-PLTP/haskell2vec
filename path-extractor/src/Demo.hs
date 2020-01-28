@@ -8,9 +8,14 @@ module Demo where
 --buildPath [] rs = Path [] (head rs) (tail rs)
 --buildPath ls rs = Path (tail ls) (head ls) (tail rs)
 
+fac :: Int -> Int
+fac x
+  | x == 0  	= 1
+  | otherwise = x * fac (x - 1)
+
+{-
 (|<>|) :: Int -> Int -> Bool
 i |<>| i2 = i == i2
-
 
 guards a
   | a == 0 = 5
@@ -28,3 +33,4 @@ bigMethod val x y
     let b = y * y
     in b + z + z
     where z = 5
+-}

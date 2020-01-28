@@ -21,6 +21,11 @@ downArrow = "|"--" D "-- ↓
 data Path =
   Path [Identifier] Identifier [Identifier] Int Int
 
+instance Show Path where
+  show (Path lefts root rights len width) = --show lefts ++ show root ++ show rights
+    foldl (\r n -> show n ++ upArrow ++ r) "" lefts ++ show root ++
+    foldl (\r n -> r ++ downArrow ++ show n ) "" rights-- ++ ";Lenght: " ++ show len ++ ";Width: " ++ show width
+
 data FunctionPath =
   FunctionPath String [PathContext]
 
@@ -36,11 +41,6 @@ splitCamel (c : cs)
   | isUpper c = tokenSeperationChar : toLower c : splitCamel cs
   | otherwise = c : splitCamel cs
 
-instance Show Path where
-  show (Path lefts root rights len width) = --show lefts ++ show root ++ show rights
-    foldl (\r n -> r ++ show n ++ upArrow ) "" lefts ++ show root ++
-    foldl (\r n -> r ++ downArrow ++ show n ) "" rights-- ++ ";Lenght: " ++ show len ++ ";Width: " ++ show width
-
 data PathContext =
   PathContext Value Path Value
 
@@ -54,7 +54,7 @@ data Options =
   --width length includeSemiPath
 
 defaultOptions :: Options
-defaultOptions = (Options 4 8 False)
+defaultOptions = (Options 4 16 False)
 
 
 extractPaths :: FunctionNodes -> FunctionPath
