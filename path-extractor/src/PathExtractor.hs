@@ -1,90 +1,95 @@
 module PathExtractor where
-import           AST_Builder
-import           Data.Char
-import           Data.Maybe  (catMaybes)
 
-{-
-data PathPartConnector =
-  Up | Down
-
-instance Show PathPartConnector where
-  show Up = " U "-- ↑
-  show Down = " D "-- ↓
--}
+import Data.Char
+import Data.Maybe (catMaybes)
+import LeafCollector
 
 upArrow :: String
-upArrow = "|"--" U "-- ↑
+upArrow = "+" --[Data.Char.chr 8593] -- ↑
 
 downArrow :: String
-downArrow = "|"--" D "-- ↓
+downArrow = "-" --[Data.Char.chr 8595] -- ↓
 
 data Path =
-  Path [Identifier] Identifier [Identifier] Int Int
+  Path [Identifier]
+       Identifier
+       [Identifier]
+       Int
+       Int
 
 instance Show Path where
-  show (Path lefts root rights len width) = --show lefts ++ show root ++ show rights
-    foldl (\r n -> show n ++ upArrow ++ r) "" lefts ++ show root ++
-    foldl (\r n -> r ++ downArrow ++ show n ) "" rights-- ++ ";Lenght: " ++ show len ++ ";Width: " ++ show width
+  show (Path lefts root rights len width) =
+    foldl (\r n -> show n ++ upArrow ++ r) "" lefts ++
+    show root ++ foldl (\r n -> r ++ downArrow ++ show n) "" rights
+    -- ++ ";Lenght: " ++ show len ++ ";Width: " ++ show width
 
-data FunctionPath =
-  FunctionPath String [PathContext]
+data FunctionPaths =
+  FunctionPaths String
+                [PathContext]
 
-instance Show FunctionPath where
-  show (FunctionPath s ps) = splitCamel s ++ " " ++ unwords (map show ps)
+instance Show FunctionPaths where
+  show (FunctionPaths s ps) = splitCamel s ++ " " ++ unwords (map show ps)
 
 tokenSeperationChar :: Char
 tokenSeperationChar = '|'
 
 splitCamel :: String -> String
 splitCamel [] = []
-splitCamel (c : cs)
+splitCamel (c:cs)
   | isUpper c = tokenSeperationChar : toLower c : splitCamel cs
   | otherwise = c : splitCamel cs
 
 data PathContext =
-  PathContext Value Path Value
+  PathContext Value
+              Path
+              Value
 
 instance Show PathContext where
-  show (PathContext v1 p v2) =
-    v1 ++ "," ++ show p ++ "," ++ v2
+  show (PathContext v1 p v2) = v1 ++ "," ++ show p ++ "," ++ v2
 
+data PathRestrictions =
+  Restrictions Int
+               Int
 
-data Options =
-  Options Int Int Bool
-  --width length includeSemiPath
+defaultRestrictions :: PathRestrictions
+defaultRestrictions = (Restrictions 16 4)
 
-defaultOptions :: Options
-defaultOptions = (Options 4 16 False)
+extractPaths :: FunctionLeaves -> FunctionPaths
+extractPaths = extractPathsWithRestrictions defaultRestrictions
 
+extractPathsWithRestrictions ::
+     PathRestrictions -> FunctionLeaves -> FunctionPaths
+extractPathsWithRestrictions restrictions (FunctionLeaves name ns) =
+  FunctionPaths name pathsContexts
+  where
+    pathsContexts =
+      (catMaybes . map (uncurry (buildPathContext restrictions)) . (buildTuples))
+        ns
+    --pathsContexts = catMaybes (map (\(l1, l2) -> buildPathContext restrictions l1 l2) (buildTuples ns))
 
-extractPaths :: FunctionNodes -> FunctionPath
-extractPaths = extractPathWithOptions defaultOptions
+buildTuples :: [a] -> [(a, a)]
+buildTuples [] = []
+buildTuples (x:xs) = map (\x' -> (x, x')) xs ++ buildTuples xs
 
-extractPathWithOptions :: Options -> FunctionNodes -> FunctionPath
-extractPathWithOptions options (FunctionNodes name nss) = FunctionPath name (concatMap (rep options) nss)
-
-rep :: Options -> [Node] -> [PathContext]
-rep options = catMaybes . map (uncurry (buildPath options)) . buildTuples
-
-buildTuples :: [a] -> [(a,a)]
-buildTuples []       = []
-buildTuples (x : xs) = map (\x' -> (x,x')) xs ++ buildTuples xs
-
-buildPath :: Options -> Node -> Node -> Maybe PathContext
-buildPath (Options maxWidth maxLen _) l1@(Leaf idents1 is1 len1 v1) l2@(Leaf idents2 is2 len2 v2)
+buildPathContext :: PathRestrictions -> Leaf -> Leaf -> Maybe PathContext
+buildPathContext (Restrictions maxLen maxWidth) (Leaf idents1 is1 len1 v1) (Leaf idents2 is2 len2 v2)
   | abs (len1 - len2) > maxLen = Nothing
   | width > maxWidth = Nothing
   | len > maxLen = Nothing
-  | otherwise =
-    Just (PathContext v1 path v2)
+  | otherwise = Just (PathContext v1 path v2)
   where
-    (width, parentDepth) = pathInfo 0 is1 is2
-    len = len1 + len2 - parentDepth * 2
-    leftPath = drop parentDepth idents1
-    path = Path (tail leftPath) (head leftPath) (drop (parentDepth + 1) idents2) len width
-
+    (width, startIndex) = pathInfo 0 is1 is2
+    len = len1 + len2 - startIndex * 2 - 1
+    leftPath = drop startIndex idents1
+    path =
+      Path
+        (tail leftPath)
+        (head leftPath)
+        (drop (startIndex + 1) idents2)
+        len
+        width
 
 pathInfo :: Int -> [Int] -> [Int] -> (Int, Int)
-pathInfo depth (i : is) (i' : is')
-  | i == i'   = pathInfo (depth + 1) is is'
-  | otherwise = (i' - i, depth)
+pathInfo index (i:is) (i':is')
+  | i == i' = pathInfo (index + 1) is is'
+  | otherwise = (i' - i, index)

@@ -1,80 +1,77 @@
 module Main where
-import           AST_Builder
-import           Data.Maybe                   (catMaybes)
-import           HaskellFilesFinder
-import           Language.Haskell.Exts
-import           Language.Haskell.Exts.Parser
-import           PathExtractor
-import           System.FilePath              (takeBaseName)
 
-demoFilePath :: String
-demoFilePath = "D:/User/Florian/Desktop/Studium/Semester 7/BachelorArbeit/Project/path-extractor/src/Demo.hs"
+import Data.Either
+import Data.Maybe (catMaybes)
+import HaskellFilesFinder
+import Language.Haskell.Exts
+import Language.Haskell.Exts.Parser
+import LeafCollector
+import PathExtractor
+import System.FilePath (takeBaseName)
 
 demoProjektPath :: String
-demoProjektPath = "D:/User/Florian/Desktop/Studium/Semester 7/BachelorArbeit/TestProjekt1"
+demoProjektPath =
+  "D:/User/Florian/Desktop/Studium/Semester 7/BachelorArbeit/TestProjekt1"
+
 --"D:/User/Florian/Desktop/Studium/Semester 7/BachelorArbeit/Project/path-extractor/TestProjekt"
+extractPathsFromTestProjekt :: IO ()
+extractPathsFromTestProjekt = extractPathsFromProject demoProjektPath
 
-extractPathFromTestProjekt :: IO ()
-extractPathFromTestProjekt = extractPathFromProject demoProjektPath
+extractPathsFromProject :: FilePath -> IO ()
+extractPathsFromProject path = do
+  ps <- getPathsFromProject path
+  writeFile "output.c2s" (unlines (map show ps))
 
-extractPathFromProject :: FilePath -> IO()
-extractPathFromProject path = do
-  ps <- getPathFromProject path
-  writeFile "output.c2v" (unlines (map show ps))
+showPathsFromTestProjekt :: IO ()
+showPathsFromTestProjekt = showPathsFromProject demoProjektPath
 
-showPathFromTestProjekt :: IO ()
-showPathFromTestProjekt = showPathFromProject demoProjektPath
-
-showPathFromProject :: FilePath -> IO()
-showPathFromProject path = do
-  ps <- getPathFromProject path
+showPathsFromProject :: FilePath -> IO ()
+showPathsFromProject path = do
+  ps <- getPathsFromProject path
   putStrLn (unlines (map show ps))
 
-getPathFromProject :: FilePath -> IO [FunctionPath]
-getPathFromProject path =
-  do
+getPathsFromProject :: FilePath -> IO [FunctionPaths]
+getPathsFromProject path = do
   fs <- getAllFilesFrom path
-  foldr (\f r -> do
-    r' <- r
-    paths <- extractPathFrom f
-    case paths of
-      (Right ps) -> return (r' ++ ps)
-      _          -> return r')
-      (return []) fs
+  foldr
+    (\f r -> do
+       r' <- r
+       paths <- extractPathsFrom f
+       case paths of
+         (Right ps) -> return (r' ++ ps)
+         _ -> return r')
+    (return [])
+    fs
 
-extractPathFrom :: FilePath -> IO (Either String [FunctionPath])
-extractPathFrom path = do
+extractPathsFrom :: FilePath -> IO (Either String [FunctionPaths])
+extractPathsFrom path = do
   eNodes <- getNodesFromFile path
   case eNodes of
-    (Right ns) -> return (Right(map extractPaths ns))
-    (Left x)   -> return (Left x)
+    (Right ns) -> return (Right (map extractPaths ns))
+    (Left x) -> return (Left x)
 
-
-extractPathFromTestFile :: IO (Either String [FunctionPath])
-extractPathFromTestFile = extractPathFrom demoFilePath
-
-getNodesFromFile :: FilePath -> IO (Either String [FunctionNodes])
+getNodesFromFile :: FilePath -> IO (Either String [FunctionLeaves])
 getNodesFromFile f = do
-    eDecls <- getDeclsFrom f
-    case eDecls of
-      Right decls -> return (Right(catMaybes (map buildDecl decls)))
-      Left e      -> return (Left e)
+  eDecls <- getDeclsFrom f
+  case eDecls of
+    Right decls -> return (Right (rights (map buildDecl decls)))
+    Left e -> return (Left e)
 
 getDeclsFrom :: FilePath -> IO (Either String [Decl SrcSpanInfo])
 getDeclsFrom f = do
   parseResult <- parseFile f
   case parseResult of
-    (ParseOk parse)       -> return (declsFromModule parse)
-    (ParseFailed _ error) -> return (Left("Parse error:" ++ error))
+    (ParseOk parse) -> return (declsFromModule parse)
+    (ParseFailed _ error) -> return (Left ("Parse error:" ++ error))
   where
-  declsFromModule :: Module SrcSpanInfo -> Either String [Decl SrcSpanInfo]
-  declsFromModule (Module _ _ _ _ ds) = Right ds
-  declsFromModule x                   = Left ("Module not supported: " ++ show x)
+    declsFromModule :: Module SrcSpanInfo -> Either String [Decl SrcSpanInfo]
+    declsFromModule (Module _ _ _ _ ds) = Right ds
+    declsFromModule x = Left ("Module not supported: " ++ show x)
 
 showErrorsFromTestProjekt :: IO ()
 showErrorsFromTestProjekt = showErrorsFromProject demoProjektPath
 
-showErrorsFromProject :: FilePath -> IO()
+showErrorsFromProject :: FilePath -> IO ()
 showErrorsFromProject path = do
   ps <- getErrorsFromProject path
   putStrLn (unlines (map show ps))
@@ -82,18 +79,20 @@ showErrorsFromProject path = do
 getErrorsFromProject :: FilePath -> IO [String]
 getErrorsFromProject path = do
   fs <- getAllFilesFrom path
-  foldr (\f r -> do
-    r' <- r
-    errors <- getErrorsFrom f
-    return (r' ++ errors))
-    (return []) fs
+  foldr
+    (\f r -> do
+       r' <- r
+       errors <- getErrorsFrom f
+       return (r' ++ errors))
+    (return [])
+    fs
 
 getErrorsFrom :: FilePath -> IO [String]
 getErrorsFrom f = do
   eDecls <- getDeclsFrom f
   case eDecls of
-    Right decls -> return (concat(catMaybes(map getBuildErrors decls)))
-    Left e      -> return [e]
+    Right decls -> return (lefts (map buildDecl decls))
+    Left e -> return [e]
 
 main :: IO ()
 main = putStrLn ("Hello Haskell")
